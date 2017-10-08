@@ -2,6 +2,8 @@ package monitor
 
 import (
   "fmt"
+  "time"
+  "strings"
   "github.com/aws/aws-sdk-go/aws"
   "github.com/aws/aws-sdk-go/service/sfn"
 
@@ -13,7 +15,13 @@ var sfnsvc *sfn.SFN
 type StateMachineResult struct {
     Name  string
     Arn string 
+}
 
+type ExecutionResult struct {
+  Name string
+  Status string
+  Start time.Time
+  ExecutionTime float64
 }
 
 func getSfnClient() *sfn.SFN {
@@ -97,4 +105,42 @@ func ListStateMachines() ([]StateMachineResult, error) {
   return result, nil
 
 }
+
+func filterExecutionPage(page *sfn.ListExecutionsOutput, pattern string) ExecutionResult {
+  var execution ExecutionResult
+  for _, ex := range page.Executions {
+    var name = *ex.Name
+    if strings.ToLower(name) == strings.ToLower(pattern) {
+      start := *ex.StartDate
+      durration :=  start.Sub(*ex.StopDate).Seconds() * 1000
+      name := name
+      status := *ex.Status
+      execution = ExecutionResult{ name, status, start, durration }
+    }
+  }
+  return execution
+}
+
+func FindExecution(stateMachine string, pattern string) ExecutionResult {
+  var svc = getSfnClient()
+  var execution ExecutionResult
+  params := &sfn.ListExecutionsInput {
+      MaxResults: aws.Int64(100),
+      StateMachineArn: &stateMachine,
+    }
+  err := svc.ListExecutionsPages(params,
+    func(page *sfn.ListExecutionsOutput, lastPage bool) bool {
+        execution = filterExecutionPage(page, pattern)
+        if execution.Name != "" || lastPage {
+          return false
+        }
+        return true
+    })
+  if err != nil {
+    fmt.Println(err)
+  }
+  return execution
+}
+
+
 
